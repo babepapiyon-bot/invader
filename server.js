@@ -18,7 +18,6 @@ app.get('/', (req, res) => {
 
 // PeerServer を HTTP サーバーに統合
 const peerServer = PeerServer({
-  port: port,
   app: server,
   path: '/peerjs',
   proxied: true
