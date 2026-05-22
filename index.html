@@ -113,7 +113,7 @@ let isHost = false;
 let remoteGameState = null;
 
 const PEER_CONFIG = {
-    host: 'https://invader-online.onrender.com',
+    host: 'invader-online.onrender.com',  // ← プロトコルなし、ホスト名のみ
     port: 443,
     path: '/peerjs',
     secure: true
@@ -121,9 +121,11 @@ const PEER_CONFIG = {
 
 function initPeer() {
     try {
+        console.log('Initializing PeerJS with config:', PEER_CONFIG);
         peer = new Peer(PEER_CONFIG);
 
         peer.on('open', (id) => {
+            console.log('Peer connected with ID:', id);
             document.getElementById('myPeerId').textContent = id;
             document.getElementById('connectBtn').disabled = false;
             updateConnectionStatus(`準備完了 - ID: ${id.substring(0, 8)}...`);
@@ -138,12 +140,14 @@ function initPeer() {
         });
 
         peer.on('error', (err) => {
-            console.error('Peer error:', err);
-            updateConnectionStatus(`接続エラー: ${err.type}`);
+            console.error('Peer error event:', err);
+            console.error('Error details:', err.type, err.message);
+            updateConnectionStatus(`接続エラー: ${err.type} - サーバーを確認してください`);
         });
     } catch (e) {
         console.error('Peer initialization failed:', e);
-        updateConnectionStatus('PeerJS初期化失敗 - ローカルプレイを使用してください');
+        console.error('Exception details:', e.message, e.stack);
+        updateConnectionStatus('PeerJS初期化失敗 - コンソールを確認してください');
     }
 }
 
