@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPACE INVADERS - オンライン対戦</title>
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.3.5/dist/peerjs.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            background-color: #111;
+            color: white;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 10px;
+        }
+        .container { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 750px; }
+        h1 { margin: 0; font-size: 24px; text-shadow: 0 0 10px #ff00ff; }
+        .status-panel {
+            width: 100%;
+            max-width: 700px;
+            padding: 10px;
+            border: 2px solid #666;
+            background-color: #1a1a1a;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #aaa;
+            text-align: center;
+        }
+        .status-line { margin: 4px 0; }
+        .connection-id {
+            background-color: #222;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            word-break: break-all;
+            color: #0f0;
+            margin-top: 4px;
+        }
+        .connect-input-group {
+            display: flex;
+            gap: 5px;
+            justify-content: center;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+        #opponentId {
+            padding: 6px;
+            max-width: 100%;
+            font-size: 12px;
+            background-color: #222;
+            border: 1px solid #555;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+        }
+        button {
+            padding: 6px 12px;
+            background-color: #333;
+            border: 1px solid #666;
+            color: #fff;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        button:hover:not(:disabled) { background-color: #444; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #gameCanvas { border: 4px solid #333; background-color: #000; box-shadow: 0 0 20px rgba(255, 0, 255, 0.2); max-width: 100%; height: auto; }
+        .ammoGauge { margin-top: 10px; display: flex; justify-content: space-between; width: 100%; max-width: 700px; gap: 10px; }
+        .ammoItem { flex: 1; padding: 10px; border: 1px solid #555; background-color: #111; font-size: 14px; color: #eee; border-radius: 8px; }
+        .ammoLabel { margin-bottom: 6px; color: #aaa; font-size: 12px; }
+        .ammoBar { width: 100%; height: 12px; background: #222; border-radius: 6px; overflow: hidden; margin-bottom: 6px; }
+        .ammoFill { height: 100%; width: 0; background: linear-gradient(90deg, #ff0, #fc0); }
+        .ammoCount { font-size: 13px; color: #fff; }
+        .info { margin-top: 10px; font-size: 12px; color: #aaa; text-align: center; line-height: 1.4; width: 100%; max-width: 700px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SPACE INVADERS - ONLINE VS -</h1>
+        <div class="status-panel">
+            <div class="status-line">Your ID:<div class="connection-id" id="myPeerId">接続中...</div></div>
+            <div class="connect-input-group">
+                <input type="text" id="opponentId" placeholder="相手のIDを入力" />
+                <button id="connectBtn" onclick="connectToPeer()" disabled>接続</button>
+                <button id="localBtn" onclick="startLocalGame()">ローカルプレイ</button>
+            </div>
+            <div class="status-line" id="connectionStatus">ステータス: 初期化中...</div>
+        </div>
+        <canvas id="gameCanvas" width="700" height="500"></canvas>
+        <div class="ammoGauge">
+            <div class="ammoItem" id="ammo1"></div>
+            <div class="ammoItem" id="ammo2"></div>
+        </div>
+        <div class="info">
+            <strong>操作:</strong> 【1P(緑)】 A/D移動 / W攻撃 / S特殊 | 【2P(青)】 ←→移動 / ↑攻撃 / ↓特殊 <br>
+            <strong>オンライン:</strong> Your IDを相手に共有し、相手のIDを入力して接続してください！
+        </div>
+    </div>
+
+<script>
+// ============ PeerJS ネットワーク設定 ============
+let peer;
+let conn;
+let isNetworkGame = false;
+let isHost = false;
+let remoteGameState = null;
+
+const PEER_CONFIG = {
+    host: 'peerserver-render.onrender.com',
+    port: 443,
+    path: '/peerjs',
+    secure: true
+};
+
+function initPeer() {
+    try {
+        peer = new Peer(PEER_CONFIG);
+
+        peer.on('open', (id) => {
+            document.getElementById('myPeerId').textContent = id;
+            document.getElementById('connectBtn').disabled = false;
+            updateConnectionStatus(`準備完了 - ID: ${id.substring(0, 8)}...`);
+        });
+
+        peer.on('connection', (connection) => {
+            conn = connection;
+            isNetworkGame = true;
+            isHost = false;
+            setupConnection();
+            updateConnectionStatus(`相手が接続しました`);
+        });
+
+        peer.on('error', (err) => {
+            console.error('Peer error:', err);
+            updateConnectionStatus(`接続エラー: ${err.type}`);
+        });
+    } catch (e) {
+        console.error('Peer initialization failed:', e);
+        updateConnectionStatus('PeerJS初期化失敗 - ローカルプレイを使用してください');
+    }
+}
+
+function connectToPeer() {
+    const opponentId = document.getElementById('opponentId').value.trim();
+    if (!opponentId || !peer) return;
+    
+    conn = peer.connect(opponentId);
+    isNetworkGame = true;
+    isHost = true;
+    setupConnection();
+    updateConnectionStatus(`相手に接続中...`);
+}
+
+function setupConnection() {
+    conn.on('open', () => {
+        updateConnectionStatus('接続成功 - ゲーム開始');
+        setTimeout(() => {
+            startGame(true);
+        }, 500);
+    });
+
+    conn.on('data', (data) => {
+        remoteGameState = data;
+    });
+
+    conn.on('error', (err) => {
+        console.error('Connection error:', err);
+        isNetworkGame = false;
+        updateConnectionStatus(`接続エラー: ${err.message}`);
+    });
+
+    conn.on('close', () => {
+        isNetworkGame = false;
+        updateConnectionStatus('接続が切断されました');
+    });
+}
+
+function sendGameState(state) {
+    if (isNetworkGame && conn && conn.open) {
+        try {
+            conn.send(state);
+        } catch (e) {
+            console.error('Send failed:', e);
+        }
+    }
+}
+
+function updateConnectionStatus(msg) {
+    document.getElementById('connectionStatus').textContent = `ステータス: ${msg}`;
+}
+
+function startLocalGame() {
+    isNetworkGame = false;
+    startGame(false);
+}
+
+window.addEventListener('load', () => {
+    initPeer();
+});
+
+// ============ ゲーム本体 ============
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const ammo1Display = document.getElementById("ammo1");
+const ammo2Display = document.getElementById("ammo2");
+
+let gameStarted = false;
+let gameOver = false;
+let winner = "";
+
+const player1 = {
+    x: canvas.width / 4 - 20,
+    y: canvas.height - 40,
+    width: 40,
+    height: 20,
+    speed: 5,
+    color: "#0f0",
+    score: 0,
+    specialAmmo: 0,
+    alive: true
+};
+
+const player2 = {
+    x: (canvas.width / 4) * 3 - 20,
+    y: canvas.height - 40,
+    width: 40,
+    height: 20,
+    speed: 5,
+    color: "#33ccff",
+    score: 0,
+    specialAmmo: 0,
+    alive: true
+};
+
+const bullets = [];
+const bulletSpeed = 7;
+const invaderFireProbability = 0.006;
+
+const invaderRows = 3;
+const invaderCols = 5;
+const invaderGroups = [
+    { invaders: [], offsetLeft: 30, boundaryLeft: 0, boundaryRight: canvas.width / 2, direction: 1, speedX: 0.5, color: "#eee" },
+    { invaders: [], offsetLeft: canvas.width / 2 + 30, boundaryLeft: canvas.width / 2, boundaryRight: canvas.width, direction: 1, speedX: 0.5, color: "#eee" }
+];
+const invaderWidth = 35;
+const invaderHeight = 25;
+const invaderPadding = 15;
+const invaderOffsetTop = 60;
+
+function createInvaderRow(group, y, xPositions = null) {
+    const row = [];
+    for (let c = 0; c < invaderCols; c++) {
+        row[c] = {
+            x: xPositions ? xPositions[c] : c * (invaderWidth + invaderPadding) + group.offsetLeft,
+            y: y,
+            alive: true,
+            color: group.color
+        };
+    }
+    return row;
+}
+
+function getAliveBounds(group) {
+    let minX = Infinity, maxX = -Infinity, hasAlive = false;
+    for (let r = 0; r < group.invaders.length; r++) {
+        for (let c = 0; c < invaderCols; c++) {
+            const inv = group.invaders[r][c];
+            if (inv.alive) {
+                hasAlive = true;
+                minX = Math.min(minX, inv.x);
+                maxX = Math.max(maxX, inv.x);
+            }
+        }
+    }
+    return { hasAlive, minX, maxX };
+}
+
+function hasInvaderBelow(group, row, col) {
+    for (let r = row + 1; r < group.invaders.length; r++) {
+        if (group.invaders[r][col].alive) return true;
+    }
+    return false;
+}
+
+function getShootableInvaders() {
+    const shooters = [];
+    for (let g = 0; g < invaderGroups.length; g++) {
+        const group = invaderGroups[g];
+        for (let r = 0; r < group.invaders.length; r++) {
+            for (let c = 0; c < invaderCols; c++) {
+                const inv = group.invaders[r][c];
+                if (!inv.alive || hasInvaderBelow(group, r, c)) continue;
+                shooters.push({ group, inv });
+            }
+        }
+    }
+    return shooters;
+}
+
+for (let g = 0; g < invaderGroups.length; g++) {
+    const group = invaderGroups[g];
+    for (let r = 0; r < invaderRows; r++) {
+        group.invaders[r] = createInvaderRow(group, r * (invaderHeight + invaderPadding) + invaderOffsetTop);
+    }
+}
+
+const keys = {};
+document.addEventListener("keydown", (e) => {
+    if (!gameStarted) return;
+    keys[e.key.toLowerCase()] = true;
+    keys[e.key] = true;
+});
+
+document.addEventListener("keyup", (e) => {
+    keys[e.key.toLowerCase()] = false;
+    keys[e.key] = false;
+});
+
+document.addEventListener("keydown", (e) => {
+    if (!gameStarted) return;
+    if (gameOver) {
+        if (e.key === " ") location.reload();
+        return;
+    }
+    if ((e.key === "w" || e.key === "W") && player1.alive) {
+        bullets.push({ x: player1.x + player1.width / 2 - 2, y: player1.y, width: 4, height: 15, owner: "1P", color: player1.color, type: "invader", vy: -bulletSpeed });
+    }
+    if ((e.key === "s" || e.key === "S") && player1.alive && player1.specialAmmo > 0) {
+        bullets.push({ x: player1.x + player1.width / 2 - 3, y: player1.y, width: 6, height: 18, owner: "1P", color: "#ff0", type: "shadow", vy: -bulletSpeed });
+        player1.specialAmmo -= 1;
+    }
+    if (e.key === "ArrowUp" && player2.alive) {
+        bullets.push({ x: player2.x + player2.width / 2 - 2, y: player2.y, width: 4, height: 15, owner: "2P", color: player2.color, type: "invader", vy: -bulletSpeed });
+    }
+    if (e.key === "ArrowDown" && player2.alive && player2.specialAmmo > 0) {
+        bullets.push({ x: player2.x + player2.width / 2 - 3, y: player2.y, width: 6, height: 18, owner: "2P", color: "#ff0", type: "shadow", vy: -bulletSpeed });
+        player2.specialAmmo -= 1;
+    }
+});
+
+function checkCollision(rect1, rect2) {
+    return rect1.x < rect2.x + rect2.width && rect1.x + rect1.width > rect2.x &&
+           rect1.y < rect2.y + rect2.height && rect1.y + rect1.height > rect2.y;
+}
+
+function getShadow(player) {
+    return { x: canvas.width - player.x - player.width, y: 40, width: player.width, height: player.height };
+}
+
+function update() {
+    if (gameOver) return;
+    if (player1.alive) {
+        if (keys["a"] && player1.x > 0) player1.x -= player1.speed;
+        if (keys["d"] && player1.x < canvas.width / 2 - player1.width) player1.x += player1.speed;
+    }
+    if (player2.alive) {
+        if (keys["ArrowLeft"] && player2.x > canvas.width / 2) player2.x -= player2.speed;
+        if (keys["ArrowRight"] && player2.x < canvas.width - player2.width) player2.x += player2.speed;
+    }
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        bullets[i].y += bullets[i].vy;
+        if (bullets[i].y < 0 || bullets[i].y > canvas.height) bullets.splice(i, 1);
+    }
+    if (Math.random() < invaderFireProbability) {
+        const shooters = getShootableInvaders();
+        if (shooters.length > 0) {
+            const shot = shooters[Math.floor(Math.random() * shooters.length)];
+            const inv = shot.inv;
+            const group = shot.group;
+            const targetOwner = group.boundaryLeft === 0 ? "enemy1" : "enemy2";
+            bullets.push({
+                x: inv.x + invaderWidth / 2 - 2, y: inv.y + invaderHeight, width: 4, height: 12,
+                owner: targetOwner, color: "#f55", type: "enemy", vy: bulletSpeed
+            });
+        }
+    }
+    let allDead = true;
+    for (let g = 0; g < invaderGroups.length; g++) {
+        const group = invaderGroups[g];
+        const bounds = getAliveBounds(group);
+        let hitWall = false;
+        for (let r = 0; r < group.invaders.length; r++) {
+            for (let c = 0; c < invaderCols; c++) {
+                let inv = group.invaders[r][c];
+                if (inv.alive) {
+                    allDead = false;
+                    if (inv.y + invaderHeight >= player1.y) {
+                        gameOver = true;
+                        winner = player1.score > player2.score ? "1P WIN" : (player2.score > player1.score ? "2P WIN" : "DRAW");
+                    }
+                }
+            }
+        }
+        if (bounds.hasAlive) {
+            const nextMinX = bounds.minX + group.speedX * group.direction;
+            const nextMaxX = bounds.maxX + group.speedX * group.direction + invaderWidth;
+            if (nextMinX < group.boundaryLeft || nextMaxX > group.boundaryRight) hitWall = true;
+        }
+        if (hitWall) {
+            group.direction *= -1;
+            for (let r = 0; r < group.invaders.length; r++) {
+                for (let c = 0; c < invaderCols; c++) {
+                    group.invaders[r][c].y += invaderHeight + invaderPadding;
+                }
+            }
+            const topRowX = group.invaders.length > 0 ? group.invaders[0].map(inv => inv.x) : null;
+            group.invaders.unshift(createInvaderRow(group, invaderOffsetTop, topRowX));
+        } else {
+            for (let r = 0; r < group.invaders.length; r++) {
+                for (let c = 0; c < invaderCols; c++) {
+                    group.invaders[r][c].x += group.speedX * group.direction;
+                }
+            }
+        }
+    }
+    if (allDead) {
+        gameOver = true;
+        winner = player1.score > player2.score ? "1P WIN" : (player2.score > player1.score ? "2P WIN" : "DRAW");
+    }
+    for (let bIdx = bullets.length - 1; bIdx >= 0; bIdx--) {
+        let b = bullets[bIdx];
+        let bulletRemoved = false;
+        if (b.type === "invader") {
+            for (let g = 0; g < invaderGroups.length; g++) {
+                const group = invaderGroups[g];
+                for (let r = 0; r < group.invaders.length; r++) {
+                    for (let c = 0; c < invaderCols; c++) {
+                        let inv = group.invaders[r][c];
+                        if (inv.alive && checkCollision(b, {x: inv.x, y: inv.y, width: invaderWidth, height: invaderHeight})) {
+                            inv.alive = false;
+                            bulletRemoved = true;
+                            if (b.owner === "1P") { player1.score += 10; player1.specialAmmo += 1; }
+                            if (b.owner === "2P") { player2.score += 10; player2.specialAmmo += 1; }
+                            break;
+                        }
+                    }
+                    if (bulletRemoved) break;
+                }
+                if (bulletRemoved) break;
+            }
+        }
+        if (!bulletRemoved && b.type === "enemy") {
+            if (b.owner === "enemy1" && player1.alive && checkCollision(b, player1)) {
+                bullets.splice(bIdx, 1);
+                gameOver = true;
+                winner = "2P WIN";
+                continue;
+            }
+            if (b.owner === "enemy2" && player2.alive && checkCollision(b, player2)) {
+                bullets.splice(bIdx, 1);
+                gameOver = true;
+                winner = "1P WIN";
+                continue;
+            }
+        }
+        if (bulletRemoved) {
+            bullets.splice(bIdx, 1);
+            continue;
+        }
+        if (b.type === "shadow") {
+            const shadow1 = player1.alive ? getShadow(player1) : null;
+            const shadow2 = player2.alive ? getShadow(player2) : null;
+            if (b.owner === "2P" && shadow1 && checkCollision(b, shadow1)) {
+                bullets.splice(bIdx, 1);
+                gameOver = true;
+                winner = "2P WIN (SHADOW)";
+                continue;
+            }
+            if (b.owner === "1P" && shadow2 && checkCollision(b, shadow2)) {
+                bullets.splice(bIdx, 1);
+                gameOver = true;
+                winner = "1P WIN (SHADOW)";
+                continue;
+            }
+        }
+    }
+    if (isNetworkGame) {
+        sendGameState({ p1: {x:player1.x, y:player1.y, alive:player1.alive}, p2: {x:player2.x, y:player2.y, alive:player2.alive} });
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.font = "18px 'Courier New'";
+    ctx.fillStyle = player1.color;
+    ctx.fillText(`1P: ${player1.score}`, 20, 35);
+    ctx.fillStyle = player2.color;
+    ctx.textAlign = "right";
+    ctx.fillText(`2P: ${player2.score}`, canvas.width - 20, 35);
+    ctx.textAlign = "left";
+    ctx.strokeStyle = "rgba(255,255,255,0.05)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2, 0);
+    ctx.lineTo(canvas.width / 2, canvas.height);
+    ctx.stroke();
+    if (player1.alive) {
+        ctx.fillStyle = player1.color;
+        ctx.fillRect(player1.x, player1.y + 5, player1.width, player1.height - 5);
+        ctx.fillRect(player1.x + player1.width / 2 - 4, player1.y, 8, 5);
+    }
+    if (player2.alive) {
+        ctx.fillStyle = player2.color;
+        ctx.fillRect(player2.x, player2.y + 5, player2.width, player2.height - 5);
+        ctx.fillRect(player2.x + player2.width / 2 - 4, player2.y, 8, 5);
+    }
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    if (player1.alive) {
+        const shadow1 = getShadow(player1);
+        ctx.fillStyle = player1.color;
+        ctx.fillRect(shadow1.x, shadow1.y + 5, shadow1.width, shadow1.height - 5);
+        ctx.fillRect(shadow1.x + shadow1.width / 2 - 4, shadow1.y, 8, 5);
+    }
+    if (player2.alive) {
+        const shadow2 = getShadow(player2);
+        ctx.fillStyle = player2.color;
+        ctx.fillRect(shadow2.x, shadow2.y + 5, shadow2.width, shadow2.height - 5);
+        ctx.fillRect(shadow2.x + shadow2.width / 2 - 4, shadow2.y, 8, 5);
+    }
+    ctx.restore();
+    bullets.forEach(b => {
+        ctx.fillStyle = b.color;
+        ctx.fillRect(b.x, b.y, b.width, b.height);
+    });
+    const ammo1Rate = Math.min(player1.specialAmmo, 10) * 10;
+    const ammo2Rate = Math.min(player2.specialAmmo, 10) * 10;
+    ammo1Display.innerHTML = `<div class="ammoLabel">1P シャドウ</div><div class="ammoBar"><div class="ammoFill" style="width:${ammo1Rate}%"></div></div><div class="ammoCount">${player1.specialAmmo} 発</div>`;
+    ammo2Display.innerHTML = `<div class="ammoLabel">2P シャドウ</div><div class="ammoBar"><div class="ammoFill" style="width:${ammo2Rate}%"></div></div><div class="ammoCount">${player2.specialAmmo} 発</div>`;
+    for (let g = 0; g < invaderGroups.length; g++) {
+        const group = invaderGroups[g];
+        for (let r = 0; r < group.invaders.length; r++) {
+            for (let c = 0; c < invaderCols; c++) {
+                let inv = group.invaders[r][c];
+                if (inv.alive) {
+                    ctx.fillStyle = inv.color;
+                    ctx.fillRect(inv.x, inv.y, invaderWidth, invaderHeight);
+                    ctx.fillStyle = "#000";
+                    ctx.fillRect(inv.x + 6, inv.y + 6, 6, 6);
+                    ctx.fillRect(inv.x + invaderWidth - 12, inv.y + 6, 6, 6);
+                }
+            }
+        }
+    }
+    if (gameOver) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.font = "40px 'Courier New'";
+        ctx.textAlign = "center";
+        if (winner.includes("1P")) ctx.fillStyle = player1.color;
+        else if (winner.includes("2P")) ctx.fillStyle = player2.color;
+        else ctx.fillStyle = "#fff";
+        ctx.fillText(winner, canvas.width / 2, canvas.height / 2);
+        ctx.font = "20px 'Courier New'";
+        ctx.fillStyle = "#fff";
+        ctx.fillText("Press SPACE to Restart", canvas.width / 2, canvas.height / 2 + 60);
+        ctx.textAlign = "left";
+    }
+}
+
+function startGame(isOnline) {
+    gameStarted = true;
+    gameOver = false;
+    winner = "";
+    bullets.length = 0;
+    if (isOnline) {
+        document.getElementById('opponentId').disabled = true;
+        document.getElementById('connectBtn').disabled = true;
+        document.getElementById('localBtn').disabled = true;
+    }
+    gameLoop();
+}
+
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+// 初期メッセージ
+updateConnectionStatus('Peer接続待機中...');
+</script>
+</body>
+</html>
