@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SPACE INVADERS - オンライン対戦</title>
-    <!-- PeerJS ライブラリを同期で読み込む -->
+    <!-- PeerJS ライブラリを CDN から読み込む -->
     <script src="https://cdn.jsdelivr.net/npm/peerjs@1.3.5/dist/peerjs.min.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -114,7 +114,7 @@ let isHost = false;
 let remoteGameState = null;
 
 const PEER_CONFIG = {
-    host: 'invader-online.onrender.com',  // ← プロトコルなし、ホスト名のみ
+    host: 'invader-online.onrender.com',  // ← Render であなたのサービスURLに置き換えてください
     port: 443,
     path: '/peerjs',
     secure: true

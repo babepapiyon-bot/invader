@@ -8,6 +8,9 @@ const port = process.env.PORT || 3000;
 const app = express();
 const server = http.createServer(app);
 
+// PeerJS ライブラリを静的配信（node_modules から）
+app.use('/peerjs-lib', express.static(path.join(__dirname, 'node_modules/peerjs/dist')));
+
 // 静的ファイル配信
 app.use(express.static(path.join(__dirname)));
 
@@ -26,5 +29,6 @@ const peerServer = PeerServer({
 server.listen(port, () => {
   console.log(`Server running on port ${port}`);
   console.log(`Static files available at http://localhost:${port}`);
+  console.log(`PeerJS library available at /peerjs-lib/peerjs.min.js`);
   console.log(`PeerServer endpoint: /peerjs`);
 });
