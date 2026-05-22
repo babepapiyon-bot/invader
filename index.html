@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SPACE INVADERS - オンライン対戦</title>
+    <!-- PeerJS ライブラリを同期で読み込む -->
     <script src="https://cdn.jsdelivr.net/npm/peerjs@1.3.5/dist/peerjs.min.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -121,7 +122,12 @@ const PEER_CONFIG = {
 
 function initPeer() {
     try {
-        console.log('Initializing PeerJS with config:', PEER_CONFIG);
+        // PeerJS ライブラリの確認
+        if (typeof Peer === 'undefined') {
+            throw new Error('Peer class not available - library may not have loaded');
+        }
+
+        console.log('Creating Peer instance with config:', PEER_CONFIG);
         peer = new Peer(PEER_CONFIG);
 
         peer.on('open', (id) => {
@@ -144,10 +150,17 @@ function initPeer() {
             console.error('Error details:', err.type, err.message);
             updateConnectionStatus(`接続エラー: ${err.type} - サーバーを確認してください`);
         });
+
+        peer.on('disconnected', () => {
+            console.warn('Peer disconnected');
+            updateConnectionStatus('接続が切断されました');
+        });
+
     } catch (e) {
         console.error('Peer initialization failed:', e);
         console.error('Exception details:', e.message, e.stack);
-        updateConnectionStatus('PeerJS初期化失敗 - コンソールを確認してください');
+        console.error('Peer class defined?', typeof Peer !== 'undefined');
+        updateConnectionStatus('PeerJS初期化失敗 - F12コンソールで詳細を確認');
     }
 }
 
@@ -205,8 +218,25 @@ function startLocalGame() {
     startGame(false);
 }
 
+// PeerJS が読み込まれるまで待ってから初期化
+function waitForPeer(callback, attempts = 0) {
+    if (typeof Peer !== 'undefined') {
+        console.log('PeerJS library loaded successfully');
+        callback();
+    } else if (attempts < 50) {
+        setTimeout(() => waitForPeer(callback, attempts + 1), 100);
+    } else {
+        console.error('Failed to load PeerJS library');
+        updateConnectionStatus('PeerJSライブラリ読み込み失敗 - ページを再読み込みしてください');
+    }
+}
+
 window.addEventListener('load', () => {
-    initPeer();
+    console.log('Page loaded, waiting for PeerJS library...');
+    waitForPeer(() => {
+        console.log('Initializing Peer connection...');
+        initPeer();
+    });
 });
 
 // ============ ゲーム本体 ============
