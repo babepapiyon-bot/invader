@@ -24,5 +24,5 @@ const peerServer = PeerServer({
 
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
-  console.log(`PeerServer running at /${peerServer.config.path}`);
+  console.log(`PeerServer running at /${peerServer.path}`);
 });
